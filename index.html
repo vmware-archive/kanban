@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Kanban</title>
+    <link rel="stylesheet" type="text/css" href="app.css" media="screen" />
+</head>
+<body>
+    <div id="app"><div id="loading_status">Loading Project...</div></div>
+    <script>
+        function getParameterByName(name) {
+            name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+            var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+            results = regex.exec(location.search);
+            return results === null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+        }
+
+        var trackerToken = getParameterByName("token").replace(/\//g, '');
+        var projectId = parseInt(getParameterByName("project_id").replace(/\//g, ''));
+        var personId = parseInt(getParameterByName("person_id").replace(/\//g, ''));
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/zepto/1.1.4/zepto.min.js"></script>
+    <script src="http://fb.me/react-with-addons-0.12.2.min.js"></script>
+    <script src="http://fb.me/JSXTransformer-0.12.2.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bacon.js/0.7.49/Bacon.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.9.0/moment-with-locales.min.js"></script>
+    <script src="dispatcher.js"></script>
+    <script src="project.js"></script>
+    <script src="util.js"></script>
+    <script src="sync.js"></script>
+    <script type="text/jsx">
+        var update = React.addons.update;
+        var Story = React.createClass({
+            handleTransition: function(transition) {
+                this.props.dispatcher.handle({
+                    type: "story_update",
+                    parameters: {
+                        id: this.props.data.id,
+                        current_state: nextStateFromTransition(transition),
+                    },
+                });
+            },
+            render: function() {
+                var classString = "story";
+                classString += " " + this.props.data.current_state;
+                classString += " " + this.props.data.ui_state;
+                var buttons = transitionsForState(this.props.data.current_state);
+                var self = this;
+                var buttonNodes = buttons.map(function(name) {
+                    var classString = "button " + name;
+                    return (
+                        <a className={classString} onClick={self.handleTransition.bind(self, name)}>{name}</a>
+                    );
+                });
+                return (
+                    <div className={classString}>
+                        <div className="buttons">
+                            {buttonNodes}
+                        </div>
+                        <div className="content">
+                            <div className="name">{this.props.data.name}</div>
+                        </div>
+                    </div>
+                );
+            }
+        });
+
+        var Panel = React.createClass({
+            render: function() {
+                var self = this;
+                var storyNodes = this.props.stories.map(function(story) {
+                    return (
+                        <Story data={story} dispatcher={self.props.dispatcher} />
+                    );
+                });
+                return (
+                    <div className="panel">
+                        <div className="header">
+                            <h2>{ this.props.title }</h2>
+                        </div>
+                        <div className="stories">
+                            {storyNodes}
+                        </div>
+                    </div>
+                );
+            },
+        });
+
+        var KanbanBoard = React.createClass({
+            getInitialState: function() {
+                console.profile("getInitialState");
+                var pending = [];
+                var doing = [];
+                var done = [];
+                var test = [];
+                var deploy = [];
+                var weekAgo = moment().subtract(1, 'w');
+                var uiStories = $.extend(true, [], this.props.project.stories);
+
+                uiStories.forEach(function(story) {
+                    story.ui_state = "synchronized";
+                    switch(story.current_state) {
+                    case "unstarted":
+                        pending.push(story);
+                        break;
+                    case "started":
+                    case "rejected":
+                        doing.push(story);
+                        break;
+                    case "finished":
+                        done.push(story);
+                        break;
+                    case "delivered":
+                        test.push(story);
+                        break;
+                    case "accepted":
+                        if(moment(story.accepted_at).isAfter(weekAgo)) {
+                            deploy.push(story);
+                        }
+                        break;
+                    }
+                });
+
+                console.profileEnd();
+
+                return {
+                    pending: pending,
+                    doing: doing,
+                    done: done,
+                    test: test,
+                    deploy: deploy,
+                };
+            },
+            componentWillMount: function() {
+                var d = this.props.dispatcher;
+                d.addListener(this.apply);
+            },
+            apply: function(e) {
+                switch(e.type) {
+                case "story_update":
+                    this.applyStoryUpdate(e);
+                    break;
+                case "story_create":
+                    this.applyStoryCreate(e);
+                    break;
+                }
+            },
+            applyStoryCreate: function(e) {
+                var story = e.results[0];
+                var collectionName = collectionForState(story.current_state);
+                console.log("Adding " + story.id + " to " + collectionName);
+                var newCollection = update(this.state[collectionName], {$push: [story]});
+                var nextState = {};
+                nextState[collectionName] = newCollection;
+                this.setState(nextState);
+            },
+            applyStoryUpdate: function(e) {
+                if(e.parameters.current_state) {
+                    var old_story = findStoryInModels(e.mutandum, e.parameters.id);
+                    var new_story = findStoryInModels(e.results, e.parameters.id);
+                    if(new_story) {
+                        this.updateStoryState(e.parameters.id, old_story.current_state, new_story.current_state, e);
+                    } else {
+                        console.log("Could not find story");
+                    }
+                }
+
+                if(e.parameters.name) {
+                    this.updateStoryName(e.parameters.id, e.parameters.name);
+                }
+            },
+            updateStoryState: function(story_id, previous, next, e) {
+                console.log("transitioning " + story_id + " from " + previous + " to " + next);
+                if(previous == next && e.client_intent != "success") {
+                    console.error("Tried to transition " + story_id + " to the same state (" + previous + ")");
+                    return;
+                }
+
+                var nextCollectionName = collectionForState(next);
+                var prevCollectionName = collectionForState(previous);
+
+                var prevStoryIndex = indexOfModelInCollection(this.state[prevCollectionName], story_id);
+                if(prevStoryIndex == -1) {
+                    prevStoryIndex = indexOfModelInCollection(this.state[nextCollectionName], story_id);
+                    if(prevStoryIndex == -1) {
+                        console.error("Could not find " + story_id + " in " + prevCollectionName + " when going from " + previous + " to " + next);
+                        return;
+                    } else {
+                        prevCollectionName = nextCollectionName;
+                    }
+                }
+                var story = $.extend(true, {}, this.state[prevCollectionName][prevStoryIndex]);
+                story.current_state = next;
+                story.ui_state = uiStateForClientIntent(e.client_intent || 'success');
+
+                var newPrevCollection = update(this.state[prevCollectionName], {$splice: [[prevStoryIndex, 1]]});
+                if(prevCollectionName != nextCollectionName) {
+                    var newNextCollection = update(this.state[nextCollectionName], {$push: [story]});
+
+                    var nextState = {};
+                    nextState[prevCollectionName] = newPrevCollection;
+                    nextState[nextCollectionName] = newNextCollection;
+                    this.setState(nextState);
+                } else {
+                    newPrevCollection = update(newPrevCollection, {$splice: [[prevStoryIndex, 0, story]]});
+
+                    var nextState = {};
+                    nextState[prevCollectionName] = newPrevCollection;
+                    this.setState(nextState);
+                }
+            },
+            updateStoryName: function(story_id, name) {
+                var collectionName = '';
+                var collections = ['pending', 'doing', 'done', 'test', 'deploy'];
+                var storyIndex = -1;
+                for(var i=0; i < collections.length; i++) {
+                    var j = indexOfModelInCollection(this.state[collections[i]], story_id);
+                    if(j > -1) {
+                        collectionName = collections[i];
+                        storyIndex = j;
+                        break;
+                    }
+                }
+
+                if(storyIndex == -1) {
+                    console.log("Could not find " + story_id + " to update it's name");
+                    return;
+                }
+
+                var newState = {};
+                newState[collectionName] = this.state[collectionName].slice(0);
+                var story = newState[collectionName][storyIndex];
+                story.name = name;
+                story.ui_state = uiStateForClientIntent(e.client_intent || 'success');
+                this.setState(newState);
+            },
+            render: function() {
+                return (
+                    <div className="panels">
+                        <Panel title="Pending" stories={this.state.pending} dispatcher={this.props.dispatcher} /> 
+                        <Panel title="Doing" stories={this.state.doing} dispatcher={this.props.dispatcher} /> 
+                        <Panel title="Done" stories={this.state.done} dispatcher={this.props.dispatcher} /> 
+                        <Panel title="Test" stories={this.state.test} dispatcher={this.props.dispatcher} /> 
+                        <Panel title="Deploy" stories={this.state.deploy} dispatcher={this.props.dispatcher} /> 
+                    </div>
+                );
+            },
+        });
+
+
+        $.ajax({
+            type: "GET",
+            url:"https://www.pivotaltracker.com/services/v5/cached_projects/"+projectId+"?token="+trackerToken,
+            success: function(data) {
+                var project = new Project(data.project);
+                var dispatcher = new Dispatcher(project);
+                var sync = new Synchronizer(trackerToken, project, personId, dispatcher);
+                React.render(
+                    <KanbanBoard project={data.project} dispatcher={dispatcher} />,
+                    document.getElementById("app")
+                );
+                data.stale_commands.forEach(function(e) {
+                    dispatcher.apply(e);
+                });
+                sync.run();
+            },
+        });
+    </script>
+</body>
+</html>

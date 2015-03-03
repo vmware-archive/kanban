@@ -1,0 +1,138 @@
+body, html, #app, .panels {
+    height: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+
+#app {
+    display: flex;
+}
+
+#app #loading_status {
+    width: 200px;
+    height: auto;
+    overflow: visible;
+    background: #000000;
+    color: #FFFFFF;
+    margin: auto;
+    text-align: center;
+    padding: 30px 0px;
+}
+
+.panels {
+    display: flex;
+    overflow: auto;
+    align-items: stretch;
+    padding-right: 10px;
+    border-left: 5px solid #FAFAFA;
+    border-right: 5px solid #FAFAFA;
+}
+
+.panel {
+    min-width: 450px;
+    background: #FFFFFF;
+    min-height: 0px;
+    display: flex;
+    flex-direction: column;
+    border: 10px solid #FAFAFA;
+    border-left-width: 5px;
+    border-right-width: 5px;
+}
+
+.panel .header {
+    min-height: 60px;
+    background: #000;
+    color: #FFF;
+}
+.panel .stories {
+    min-height: 0px;
+    overflow-y:auto;
+}
+
+.stories .story {
+    max-width: 100%;
+    overflow: hidden;
+    border-bottom: 1px solid #DDD;
+    border-top: 1px solid #FFF;
+    line-height: 1.5rem;
+    padding: 5px 10px;
+}
+
+.panel .header {
+    text-align: center;
+}
+
+.story.unstarted {
+    background: #f4f4f4;
+}
+.story.rejected, .story.started, .story.finished, .story.delivered {
+    background: #f3f3d1;
+}
+.story.accepted {
+    background: #daebcf;
+}
+
+.story {
+    overflow: hidden;
+    min-height: 30px;
+}
+
+.story.unsynchronized .content:before {
+    content: "... ";
+}
+
+.story .content {
+    display: inline;
+}
+
+.story .name {
+    display: inline;
+}
+
+.story .buttons {
+    display: block;
+    height: 0px;
+}
+
+.button {
+    float: right;
+    width: 47px;
+
+    background: #CCCCCC;
+    padding: 3px 10px;
+    margin-left: 10px;
+    text-decoration: none;
+    cursor: pointer;
+    text-align: center;
+    vertical-align: baseline;
+
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.do.button, .restart.button {
+    background: #e0e2e5;
+    color: #111;
+}
+
+.finish.button {
+    background: #203e64;
+    color: #eee;
+}
+.deliver.button {
+    background: #f39300;
+    color: #eee;
+}
+.accept.button {
+    background: #629200;
+    color: #eee;
+}
+.reject.button {
+    background: #A71f39;
+    color: #eee;
+}
